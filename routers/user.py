@@ -39,7 +39,6 @@ class UserRequests(BaseModel):
     email : str
     firstname : str
     lastname : str
-    role : str
 
 class Token(BaseModel) :
     access_token : str
@@ -53,8 +52,8 @@ def authenticate_user(username : str, password : str, db):
         return False
     return user
 
-def create_user(Username : str, user_id : int, expires_delta : timedelta) :
-    encode = {'sub' : Username, 'id' : user_id}
+def create_user(Username : str, user_id : int, role : str, expires_delta : timedelta) :
+    encode = {'sub' : Username, 'id' : user_id, 'role' : role}
     expires = datetime.utcnow() + expires_delta
     encode.update({'exp' : expires})
     return jwt.encode(encode, SECRET_KEY, algorithm=ALGORITHM)
@@ -64,21 +63,36 @@ async def get_curr_user(token : Annotated[str, Depends(oaut2_bearer)]) :
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         username : str = payload.get('sub')
         user_id : int = payload.get('id')
+        role : str = payload.get('role')
         if username is None or user_id is None :
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Username / User ID is invalid')
-        return {'username' : username, 'user_ID' : user_id}
+        return {'username' : username, 'user_ID' : user_id, 'role' : role}
     except JWTError :
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Username / User ID is invalid')
 
-@router.post("/", status_code=status.HTTP_201_CREATED)
-async def user_create(user_request : UserRequests, db : db_dependency) :
+@router.post("/customer", status_code=status.HTTP_201_CREATED)
+async def customer_create(user_request : UserRequests, db : db_dependency) :
     user_model = users(
         username = user_request.username,
         password = bcrypt_context.hash(user_request.password),
         email = user_request.email,
         firstname = user_request.firstname,
         lastname = user_request.lastname,
-        role = user_request.role,
+        role = "Customer",
+        is_active = True
+    )
+    db.add(user_model)
+    db.commit()
+
+@router.post("/admin", status_code=status.HTTP_201_CREATED)
+async def admin_create(user_request : UserRequests, db : db_dependency) :
+    user_model = users(
+        username = user_request.username,
+        password = bcrypt_context.hash(user_request.password),
+        email = user_request.email,
+        firstname = user_request.firstname,
+        lastname = user_request.lastname,
+        role = "admin",
         is_active = True
     )
     db.add(user_model)
@@ -89,6 +103,6 @@ async def login_access(form_data : Annotated[OAuth2PasswordRequestForm, Depends(
     user = authenticate_user(form_data.username, form_data.password, db)
     if not user :
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Username / Password is not found !!!")
-    token = create_user(user.username, user.id, timedelta(minutes=10))
+    token = create_user(user.username, user.id, user.role, timedelta(minutes=10))
     return {"access_token" : token, "type" : "bearer"}
 
